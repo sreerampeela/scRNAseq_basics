@@ -1,0 +1,13 @@
+# Input data: 10x matrices
+NSCLC_7pt
+data/pbmc_10k_data/
+
+# Results: every notebook writes its figures, tables and .rds objects to data/
+data
+
+# Safety net: Seurat objects saved anywhere else
+*.rds
+
+# Lecture slides, and the lock file PowerPoint creates while a deck is open
+*.pptx
+~$*
