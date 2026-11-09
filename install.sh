@@ -43,6 +43,7 @@ PACKAGES=(
   bioconductor-summarizedexperiment
   bioconductor-biocparallel
   r-harmony                            # batch integration (next analysis step)
+  r-leidenbase                         # Leiden clustering: FindClusters(algorithm = 4)
   # data handling and plotting
   r-matrix
   r-dplyr
@@ -134,7 +135,7 @@ echo "environment: $ENV_PREFIX"
 info "Checking R and the R packages"
 run_in_env Rscript --vanilla -e '
 pkgs <- c("Seurat", "SeuratObject", "SoupX", "scDblFinder", "SingleCellExperiment", "SummarizedExperiment",
-          "BiocParallel", "harmony", "Matrix", "dplyr", "tidyr", "ggplot2", "patchwork", "IRkernel")
+          "BiocParallel", "harmony", "leidenbase", "Matrix", "dplyr", "tidyr", "ggplot2", "patchwork", "IRkernel")
 failed <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
 if (length(failed) > 0) stop("These packages failed to load: ", paste(failed, collapse = ", "))
 cat(R.version.string, "\n")
