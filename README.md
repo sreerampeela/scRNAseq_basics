@@ -2,14 +2,6 @@
 
 Basics of single-cell RNA-seq (scRNA-seq) data analysis with **Seurat 5 (R)**, run from Jupyter notebooks on **WSL2 or Linux**.
 
-| Notebook | What it covers | Input |
-|---|---|---|
-| `scripts/seurat_analysis/analysis_stage1.ipynb` | Tutorial: count matrix → ambient-RNA check (SoupX) → doublets (scDblFinder) → QC metrics → MAD-based filtering → normalization → highly variable genes → scaling, with extensive explanations | 10x PBMC dataset |
-| `scripts/seurat_analysis/preprocess_preInt.ipynb` | Two NSCLC datasets: merging, the same preprocessing, and PCA-based tests of whether the structure is driven by batch (dataset / sample) or by biology, before integration | 10x CellPlex NSCLC dataset + a public GEO dataset |
-| `scripts/seurat_analysis/integration_annotation.ipynb` | Harmony integration (`dataset` as batch key) with before/after diagnostics, Leiden clustering, cluster markers, and SingleR cell-type annotation with the Human Primary Cell Atlas | `data/nsclc_combined_preInt.rds` |
-| `scripts/seurat_analysis/pseudobulk_DE.ipynb` | Epithelial pseudobulk per sample, pseudobulk QC (size, gene filtering, MDS/PCA, correlations, ambient RNA), and DESeq2 DE between samples of high vs low immune infiltration (`~ dataset + infiltration`) | `data/nsclc_integrated_annotated.rds` |
-| `scripts/scanpy_analysis/*.ipynb` | Python / Scanpy versions of earlier sessions (not covered by `install.sh`) | |
-
 The Seurat notebooks run in this order: `analysis_stage1` (independent tutorial); `preprocess_preInt` → `integration_annotation` → `pseudobulk_DE`. Each shows its figures inline (nothing is saved as image files), discusses the findings and parameter choices after the key steps, and ends with a **runtime-per-stage** table. The two preprocessing notebooks only **estimate** ambient RNA contamination with SoupX and do not correct the counts; each has a "Full analysis: include the correction" box with the commands for a complete run.
 
 ---
@@ -123,7 +115,7 @@ The data are **not** in the repository. Download them into the folders below; th
 
 ### 3.1 PBMC 10k (10x Genomics), for `analysis_stage1.ipynb`
 
-The Cell Ranger **filtered feature-barcode matrix** (MEX format) of a ~10,000-cell PBMC dataset from the 10x Genomics dataset portal (<https://www.10xgenomics.com/datasets>).
+The Cell Ranger **filtered feature-barcode matrix** (MEX format) of a ~10,000-cell PBMC dataset from the 10x Genomics dataset portal (<https://www.10xgenomics.com/datasets/10-k-peripheral-blood-mononuclear-cells-pbm-cs-from-a-healthy-donor-single-indexed-3-1-standard-4-0-0>).
 
 ### 3.2 NSCLC, 10x CellPlex (multiplexed), for `preprocess_preInt.ipynb`
 
@@ -156,16 +148,22 @@ To use more donors, add their folders and extend `sample_names` in the notebook'
 The second dataset is a GEO series that provides **one dense, tab-separated genes × barcodes matrix of integer UMI counts per patient**, named `GSM<id>_P<n>_exp.txt`. The header row lists only the barcodes, and the first column holds the gene symbols. GEO stores supplementary files under `series/<first digits>nnn/<GSE ID>/suppl/`:
 
 ```bash
-GSE_ID="<GSE_ACCESSION>"                        # e.g. GSE123456
-GSE_DIR="${GSE_ID:0:${#GSE_ID}-3}nnn"           # GSE123456 -> GSE123nnn
+GSE_ID="GSE148071"
+GSE_DIR="${GSE_ID:0:${#GSE_ID}-3}nnn"
 mkdir -p "data/$GSE_ID"
-wget -O "/tmp/${GSE_ID}_RAW.tar" "https://ftp.ncbi.nlm.nih.gov/geo/series/${GSE_DIR}/${GSE_ID}/suppl/${GSE_ID}_RAW.tar"
+wget -c -O "/tmp/${GSE_ID}_RAW.tar" "https://ftp.ncbi.nlm.nih.gov/geo/series/${GSE_DIR}/${GSE_ID}/suppl/${GSE_ID}_RAW.tar"
 
-tar -tf "/tmp/${GSE_ID}_RAW.tar"                # list the per-sample files
-# Extract only the patients you want, then decompress (the notebook reads plain .txt files)
-tar -xf "/tmp/${GSE_ID}_RAW.tar" -C "data/$GSE_ID" "<GSM_ID_1>_P1_exp.txt.gz" "<GSM_ID_2>_P3_exp.txt.gz"
+# Check the naming first (should show GSMxxxx_P1_exp.txt.gz etc.)
+tar -tf "/tmp/${GSE_ID}_RAW.tar" | grep -E "_P(1|3|7|10)_"
+
+# Extract only P1, P3, P7, P10, then decompress
+tar -xf "/tmp/${GSE_ID}_RAW.tar" -C "data/$GSE_ID" --wildcards \
+    '*_P1_exp.txt.gz' '*_P3_exp.txt.gz' '*_P7_exp.txt.gz' '*_P10_exp.txt.gz'
 gunzip data/"$GSE_ID"/*.txt.gz
 ls -lh "data/$GSE_ID"
+
+# Optional: free the space once you're happy
+# rm "/tmp/${GSE_ID}_RAW.tar"
 ```
 
 In the notebook's paths cell, set `gse_dir` and `gse_id` to the same accession. Every `GSM*_exp.txt` file in that folder is loaded, and the patients are labelled `<GSE_ID>_P<n>`. The four files used in the notebook need ~1.2 GB of disk; reading the largest one needs ~1 GB of RAM.
@@ -183,26 +181,6 @@ jupyter lab --no-browser        # open the printed http://localhost:8888/... lin
 ```
 
 Open the notebooks in `scripts/seurat_analysis/` and select the kernel **"R 4.4.3 (seurat_env)"**. Do not use an existing `ir` kernel; it may point to a different R installation.
-
-### 4.2 VS Code
-
-Open the project folder in a **WSL window** (extension "WSL"/"Remote - WSL"), install the Jupyter extension if asked, open a notebook and pick the kernel **"R 4.4.3 (seurat_env)"**.
-
-> If you edit a notebook outside VS Code while it is open, VS Code may save its old copy over your changes. Close the notebook (or use **Revert File**) first.
-
-### 4.3 Headless, top to bottom (best for runtimes)
-
-```bash
-conda run -n seurat_env jupyter nbconvert --to notebook --execute --inplace \
-  --ExecutePreprocessor.kernel_name=seurat_env --ExecutePreprocessor.timeout=-1 \
-  scripts/seurat_analysis/analysis_stage1.ipynb
-
-for nb in preprocess_preInt integration_annotation pseudobulk_DE; do     # in this order: each needs the previous one's .rds
-  conda run -n seurat_env jupyter nbconvert --to notebook --execute --inplace \
-    --ExecutePreprocessor.kernel_name=seurat_env --ExecutePreprocessor.timeout=-1 \
-    scripts/seurat_analysis/$nb.ipynb
-done
-```
 
 The runtime-per-stage table at the end of each notebook is only meaningful for an uninterrupted run like this.
 
