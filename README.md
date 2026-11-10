@@ -6,18 +6,20 @@ Basics of single-cell RNA-seq (scRNA-seq) data analysis with **Seurat 5 (R)**, r
 |---|---|---|
 | `scripts/seurat_analysis/analysis_stage1.ipynb` | Tutorial: count matrix → ambient-RNA check (SoupX) → doublets (scDblFinder) → QC metrics → MAD-based filtering → normalization → highly variable genes → scaling, with extensive explanations | 10x PBMC dataset |
 | `scripts/seurat_analysis/preprocess_preInt.ipynb` | Two NSCLC datasets: merging, the same preprocessing, and PCA-based tests of whether the structure is driven by batch (dataset / sample) or by biology, before integration | 10x CellPlex NSCLC dataset + a public GEO dataset |
+| `scripts/seurat_analysis/integration_annotation.ipynb` | Harmony integration (`dataset` as batch key) with before/after diagnostics, Leiden clustering, cluster markers, and SingleR cell-type annotation with the Human Primary Cell Atlas | `data/nsclc_combined_preInt.rds` |
+| `scripts/seurat_analysis/pseudobulk_DE.ipynb` | Epithelial pseudobulk per sample, pseudobulk QC (size, gene filtering, MDS/PCA, correlations, ambient RNA), and DESeq2 DE between samples of high vs low immune infiltration (`~ dataset + infiltration`) | `data/nsclc_integrated_annotated.rds` |
 | `scripts/scanpy_analysis/*.ipynb` | Python / Scanpy versions of earlier sessions (not covered by `install.sh`) | |
 
-Both Seurat notebooks end with a **runtime-per-stage** table and plot. They only **estimate** ambient RNA contamination with SoupX and do not correct the counts. Each notebook has a "Full analysis: include the correction" box with the commands for a complete run.
+The Seurat notebooks run in this order: `analysis_stage1` (independent tutorial); `preprocess_preInt` → `integration_annotation` → `pseudobulk_DE`. Each shows its figures inline (nothing is saved as image files), discusses the findings and parameter choices after the key steps, and ends with a **runtime-per-stage** table. The two preprocessing notebooks only **estimate** ambient RNA contamination with SoupX and do not correct the counts; each has a "Full analysis: include the correction" box with the commands for a complete run.
 
 ---
 
 ## 1. Repository layout
 
 ```
-scRNAseq_basics/                 <- project root (the notebooks find it by looking for install.sh + scripts/)
+scRNAseq_basics/                 <- project root
 ├── install.sh                   <- creates the conda environment "seurat_env" and the Jupyter kernel
-├── scripts/
+├── scripts/                     <- notebooks run in scripts/seurat_analysis/ and find the root two folders up
 │   ├── seurat_analysis/         <- R / Seurat notebooks
 │   └── scanpy_analysis/         <- Python / Scanpy notebooks
 ├── NSCLC_7pt/                   <- input: NSCLC 10x data, one folder per sample (git-ignored, download yourself)
@@ -26,7 +28,7 @@ scRNAseq_basics/                 <- project root (the notebooks find it by looki
 └── data/                        <- input PBMC / GEO data + ALL results (git-ignored)
     ├── pbmc10_data/             <- input: 10x PBMC filtered matrix
     ├── GSE<ID>/                 <- input: GEO count matrices
-    ├── figures/  tables/        <- results written by the notebooks
+    ├── tables/                  <- result tables written by the notebooks
     └── *.rds                    <- saved Seurat objects
 ```
 
@@ -96,12 +98,22 @@ FORCE=1 bash install.sh         # delete an existing seurat_env and rebuild it f
 `install.sh`:
 
 1. checks that it runs on Linux / WSL2 and finds `conda` (and `mamba`, if present);
-2. creates the conda environment **`seurat_env`** with **R 4.4.3** from `conda-forge` + `bioconda` only (`--override-channels`, strict channel priority). It installs Seurat 5, SeuratObject, SoupX, scDblFinder, SingleCellExperiment, BiocParallel, harmony, leidenbase, Matrix, dplyr, tidyr, ggplot2, patchwork, IRkernel, JupyterLab, Notebook and nbconvert;
+2. creates the conda environment **`seurat_env`** with **R 4.4.3** from `conda-forge` + `bioconda` only (`--override-channels`, strict channel priority). It installs Seurat 5, SeuratObject, SoupX, scDblFinder, SingleCellExperiment, BiocParallel, harmony, leidenbase, SingleR, celldex, DESeq2, edgeR, limma, vsn, apeglm, Matrix, dplyr, tidyr, ggplot2, patchwork, ggrepel, pheatmap, IRkernel, JupyterLab, Notebook and nbconvert;
 3. checks that every R package loads and that R is 4.4.3;
 4. registers the Jupyter kernel **"R 4.4.3 (seurat_env)"** for your user;
 5. runs a one-cell test notebook on that kernel.
 
 If bash reports `$'\r': command not found`, the script has Windows line endings. Fix them with `sed -i 's/\r$//' install.sh`.
+
+**Environment created before SingleR / celldex / DESeq2 / the pseudobulk QC packages were added?** Add them without rebuilding:
+
+```bash
+conda install -n seurat_env --override-channels -c conda-forge -c bioconda --strict-channel-priority \
+  bioconductor-singler bioconductor-celldex bioconductor-deseq2 \
+  bioconductor-edger bioconductor-limma bioconductor-vsn bioconductor-apeglm r-ggrepel r-pheatmap
+```
+
+**Cell-type reference:** `integration_annotation.ipynb` downloads the Human Primary Cell Atlas from Bioconductor (`celldex::fetchReference("hpca", "2024-02-26")`) on its first run, so it needs internet once. A copy is cached in `data/references/`.
 
 ---
 
@@ -185,19 +197,25 @@ conda run -n seurat_env jupyter nbconvert --to notebook --execute --inplace \
   --ExecutePreprocessor.kernel_name=seurat_env --ExecutePreprocessor.timeout=-1 \
   scripts/seurat_analysis/analysis_stage1.ipynb
 
-conda run -n seurat_env jupyter nbconvert --to notebook --execute --inplace \
-  --ExecutePreprocessor.kernel_name=seurat_env --ExecutePreprocessor.timeout=-1 \
-  scripts/seurat_analysis/preprocess_preInt.ipynb
+for nb in preprocess_preInt integration_annotation pseudobulk_DE; do     # in this order: each needs the previous one's .rds
+  conda run -n seurat_env jupyter nbconvert --to notebook --execute --inplace \
+    --ExecutePreprocessor.kernel_name=seurat_env --ExecutePreprocessor.timeout=-1 \
+    scripts/seurat_analysis/$nb.ipynb
+done
 ```
 
 The runtime-per-stage table at the end of each notebook is only meaningful for an uninterrupted run like this.
 
 ### 4.4 Outputs
 
-| Notebook | Figures | Tables | Objects |
-|---|---|---|---|
-| `analysis_stage1.ipynb` | `data/figures/pbmc10k_stage1/` | `data/tables/pbmc10k_stage1/` | `data/pbmc10k_stage1_preprocessed.rds` |
-| `preprocess_preInt.ipynb` | `data/figures/NSCLC_combined/` | `data/tables/NSCLC_combined/` | `data/nsclc7pt_merged.rds`, `data/nsclc_combined_merged.rds`, `data/nsclc_combined_preInt.rds` |
+Figures are shown inline in the notebooks only.
+
+| Notebook | Tables | Objects |
+|---|---|---|
+| `analysis_stage1.ipynb` | `data/tables/pbmc10k_stage1/` | `data/pbmc10k_stage1_preprocessed.rds` |
+| `preprocess_preInt.ipynb` | `data/tables/NSCLC_combined/` | `data/nsclc_combined_merged.rds`, `data/nsclc_combined_preInt.rds` |
+| `integration_annotation.ipynb` | `data/tables/NSCLC_integration/` | `data/nsclc_integrated_annotated.rds`, `data/references/celldex_hpca_2024-02-26.rds` |
+| `pseudobulk_DE.ipynb` | `data/tables/NSCLC_pseudobulk/` (DESeq2 results) | none |
 
 ---
 
@@ -239,7 +257,8 @@ Then download the data (Section 3) and run the notebooks headless (Section 4.3).
 
 ### 5.3 What else keeps results reproducible
 
-* **Random seeds:** every random step (scDblFinder, module scores, silhouettes, integer rounding) uses the seed set in the setup cell (`seed <- 198716`).
+* **Random seeds:** every random step (scDblFinder, module scores, silhouettes, Harmony, UMAP, Leiden clustering, marker subsampling) uses the seed set in the setup cell (`seed <- 198716`).
+* **Fixed reference version:** SingleR uses a dated reference (`hpca`, version `2024-02-26`), cached in `data/references/`.
 * **Single-threaded doublet detection:** scDblFinder runs with `BiocParallel::SerialParam(RNGseed = seed)`, so results do not depend on the number of cores.
 * **Versions in the output:** each notebook ends with `sessionInfo()`. Keep the executed notebook (or its `sessionInfo()` output) together with the results.
 * **Same input files:** record the dataset URLs / GEO accessions you used (replace the placeholders above). If possible, also record checksums: `md5sum data/pbmc10_data/* NSCLC_7pt/*/* data/GSE*/* > envs/input_md5.txt`.
@@ -255,7 +274,7 @@ Then download the data (Section 3) and run the notebooks headless (Section 4.3).
 | `$'\r': command not found` | `sed -i 's/\r$//' install.sh` (Windows line endings) |
 | `A conda environment named 'seurat_env' already exists` | `FORCE=1 bash install.sh` |
 | Kernel "R 4.4.3 (seurat_env)" not listed | `conda run -n seurat_env Rscript -e 'IRkernel::installspec(name = "seurat_env", displayname = "R 4.4.3 (seurat_env)", user = TRUE)'`, then restart Jupyter / VS Code |
-| `Project root (folder with install.sh and scripts/) not found` | Start Jupyter inside the repository, and keep `install.sh` and `scripts/` in the project root |
+| `Open this notebook from scripts/seurat_analysis/ (project root not found)` | The notebooks must run with `scripts/seurat_analysis/` as working directory (the default in JupyterLab, VS Code and `nbconvert`) |
 | `missing barcodes.tsv.gz ...` / `No GSM*_exp.txt files` | Check the folder names and file names against Section 3 |
 | R is killed / runs out of memory | Close other programs, or give WSL2 more memory in `%UserProfile%\.wslconfig` (`[wsl2]` then `memory=16GB`), then run `wsl --shutdown` in PowerShell |
 

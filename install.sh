@@ -3,8 +3,8 @@
 # install.sh: create the "seurat_env" conda environment for the DeCodeLife scRNA-seq notebooks
 #
 # Target: WSL2 (Ubuntu or another Linux distribution). Plain Linux works too.
-# Installs: R 4.4.3, Seurat 5, SeuratObject, SoupX, scDblFinder, SingleCellExperiment, harmony,
-#           Matrix, dplyr, tidyr, ggplot2, patchwork, plus JupyterLab, Notebook, nbconvert and IRkernel.
+# Installs: R 4.4.3, Seurat 5, SeuratObject, SoupX, scDblFinder, SingleCellExperiment, harmony, SingleR, celldex,
+#           DESeq2, edgeR, limma, vsn, apeglm, Matrix, dplyr, tidyr, ggplot2, patchwork, ggrepel, pheatmap, plus JupyterLab, Notebook, nbconvert and IRkernel.
 # Registers the Jupyter kernel "seurat_env" (shown as "R 4.4.3 (seurat_env)"); the notebooks use this kernel.
 #
 # Usage (in a WSL2 terminal, not PowerShell or Git Bash):
@@ -44,12 +44,21 @@ PACKAGES=(
   bioconductor-biocparallel
   r-harmony                            # batch integration (next analysis step)
   r-leidenbase                         # Leiden clustering: FindClusters(algorithm = 4)
+  bioconductor-singler                 # reference-based cell-type annotation
+  bioconductor-celldex                 # SingleR references (Human Primary Cell Atlas, downloaded on first use)
+  bioconductor-deseq2                  # pseudobulk differential expression
+  bioconductor-edger                   # pseudobulk QC: filterByExpr, TMM, CPM
+  bioconductor-limma                   # pseudobulk QC: MDS plot
+  bioconductor-vsn                     # pseudobulk QC: mean-SD plot
+  bioconductor-apeglm                  # DESeq2 log fold change shrinkage
   # data handling and plotting
   r-matrix
   r-dplyr
   r-tidyr
   r-ggplot2
   r-patchwork
+  r-ggrepel                            # labels that do not overlap
+  r-pheatmap                           # sample-correlation heatmap
   # Jupyter: notebooks, headless execution, and the R kernel
   r-irkernel
   jupyterlab
@@ -135,7 +144,8 @@ echo "environment: $ENV_PREFIX"
 info "Checking R and the R packages"
 run_in_env Rscript --vanilla -e '
 pkgs <- c("Seurat", "SeuratObject", "SoupX", "scDblFinder", "SingleCellExperiment", "SummarizedExperiment",
-          "BiocParallel", "harmony", "leidenbase", "Matrix", "dplyr", "tidyr", "ggplot2", "patchwork", "IRkernel")
+          "BiocParallel", "harmony", "leidenbase", "SingleR", "celldex", "DESeq2", "edgeR", "limma", "vsn",
+          "apeglm", "Matrix", "dplyr", "tidyr", "ggplot2", "patchwork", "ggrepel", "pheatmap", "IRkernel")
 failed <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
 if (length(failed) > 0) stop("These packages failed to load: ", paste(failed, collapse = ", "))
 cat(R.version.string, "\n")
